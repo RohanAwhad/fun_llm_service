@@ -61,7 +61,7 @@ from .class_model import LLM, GenerationMaster
 # together ai config
 url = "https://api.together.xyz/v1/completions"
 api_key = os.environ['TOGETHER_API_KEY']
-NUM_WORKERS = int(os.environ.get('TOGETHER_NUM_WORKERS', 2))
+NUM_WORKERS = int(os.environ.get('LLM_NUM_WORKERS', 2))
 
 async def _generate(
   inputs: List[List[Dict[str, Any]]],
