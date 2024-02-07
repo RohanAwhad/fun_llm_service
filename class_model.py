@@ -1,11 +1,11 @@
-
-
 import asyncio
-from typing import Any, Dict, List, Optional, Union
 import aiohttp
+import jinja2
+import requests
+
 from loguru import logger
 from pydantic import BaseModel
-import requests
+from typing import Any, Dict, List, Optional, Union
 from tqdm import tqdm
 
 
@@ -25,7 +25,7 @@ class LLM:
     api_key: str,
     model: str,
     llm_params: LLMParams,
-    prompt_template: str,
+    prompt_template: Union[str, jinja2.environment.Template],
     session: Optional[aiohttp.ClientSession]=None,
   ):
     self.url = url
@@ -78,14 +78,22 @@ class LLM:
       **self.llm_params.model_dump()
     }
     if self.is_openai():
-      data['messages'] = [{'role': 'user', 'content': self.prompt_template.format(**inputs)}]
+      data['messages'] = [{'role': 'user', 'content': self._get_prompt(inputs)}]
       data.pop('top_k')
     else:
-      data['prompt'] = self.prompt_template.format(**inputs)
+      data['prompt'] = self._get_prompt(inputs)
     return data
   
   def is_openai(self) -> bool:
     return 'openai' in self.url
+
+  # TODO (rohan): Deprecate this method in v0.0.4
+  def _get_prompt(self, inputs: Dict[str, Any]) -> str:
+    if isinstance(self.prompt_template, str):
+      # raise warning
+      Warning("Using string as prompt_template is deprecated and removed in v0.0.4. Use jinja2.Template instead.")
+      return self.prompt_template.format(**inputs)
+    return self.prompt_template.render(**inputs)
 
   def get_text_from_response(self) -> str:
     if self.is_openai():
