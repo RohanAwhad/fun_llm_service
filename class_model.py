@@ -10,6 +10,16 @@ from tqdm import tqdm
 
 
 class LLMParams(BaseModel):
+  """
+  Parameters for the LLM model.
+
+  Attributes:
+    max_tokens (int): The maximum number of tokens to generate.
+    temperature (float): The temperature value for token generation.
+    top_p (float): The cumulative probability threshold for token generation.
+    top_k (int): The number of top tokens to consider for token generation.
+    stop (List[str]): A list of stop words to terminate token generation.
+  """
   max_tokens: int
   temperature: float
   top_p: float
@@ -18,12 +28,35 @@ class LLMParams(BaseModel):
 
 
 class LLMResponse(BaseModel):
+  """
+  Represents a response from the LLM service.
+
+  Attributes:
+    status (int): The status code of the response.
+    data (Optional[Dict[str, Any]]): The data associated with the response, if any.
+    text (Optional[str]): The error message associated with the response, if any.
+  """
   status: int
   data: Optional[Dict[str, Any]] = None
   text: Optional[str] = None
 
 
 class LLM:
+  """
+  Language Model class for generating text using LLM service.
+
+  Args:
+    url (str): The URL of the LLM service.
+    api_key (str): The API key for accessing the LLM service.
+    model (str): The name of the language model to use.
+    llm_params (LLMParams): The parameters for the LLM model.
+    prompt_template (Union[str, jinja2.environment.Template]): The template for generating prompts.
+
+  Methods:
+    set_session(session: aiohttp.ClientSession): Sets the session for making asynchronous requests.
+    generate(inputs: Dict[str, Any]) -> str: Generates text using the LLM model based on the session attribute.
+    get_text_from_response(response: Optional[LLMResponse]=None) -> str: Gets the data or message from the LLM response based on the status code.
+  """
   def __init__(
     self,
     url: str,
@@ -39,19 +72,15 @@ class LLM:
     self.prompt_template = prompt_template
     self.session = None
 
-  def set_session(self, session: aiohttp.ClientSession):
-    self.session = session
-
-  def __str__(self) -> str:
-    return f"LLM: {self.model}. URL: {self.url}"
+  def __str__(self) -> str: return f"LLM: {self.model}. URL: {self.url}"
+  def set_session(self, session: aiohttp.ClientSession): self.session = session
+  def _is_openai(self) -> bool: return 'openai' in self.url
 
   def generate(self, inputs: Dict[str, Any]) -> str:
-    if self.session is None:
-      return self._generate(inputs)
-    else:
-      return self._agenerate(inputs)
+    return self._generate(inputs) if self.session is None else self._agenerate(inputs)
 
   async def _agenerate(self, inputs: Dict[str, Any]) -> LLMResponse:
+    '''Generate text using asynchronous requests.'''
     data = self._prep_json(inputs)
     headers = {
       "accept": "application/json",
@@ -65,10 +94,11 @@ class LLM:
       return self.response
 
   def _generate(self, inputs: Dict[str, Any], verbose=False) -> str:
+    '''Generate text using synchronous requests.'''
     data = self._prep_json(inputs)
     if verbose:
       print('LLM Input>')
-      if self.is_openai(): print(data['messages'][0]['content'])
+      if self._is_openai(): print(data['messages'][0]['content'])
       else: print(data['prompt'])
 
     headers = {
@@ -83,40 +113,76 @@ class LLM:
     return self.response
 
   def _prep_json(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Prepares the JSON data for the LLM model request.
+
+    Args:
+      inputs (Dict[str, Any]): The input data for the LLM model.
+
+    Returns:
+      Dict[str, Any]: The prepared JSON data.
+    """
     data = {
       "model": self.model,
       "n": 1,
       **self.llm_params.model_dump()
     }
-    if self.is_openai():
+    if self._is_openai():
       data['messages'] = [{'role': 'user', 'content': self._get_prompt(inputs)}]
       data.pop('top_k')
     else:
       data['prompt'] = self._get_prompt(inputs)
     return data
   
-  def is_openai(self) -> bool:
-    return 'openai' in self.url
 
   # TODO (rohan): Deprecate this method in v0.0.4
   def _get_prompt(self, inputs: Dict[str, Any]) -> str:
+    """
+    Get the prompt based on the inputs provided.
+
+    Args:
+      inputs (Dict[str, Any]): A dictionary containing the input values.
+
+    Returns:
+      str: The generated prompt string.
+    """
     if isinstance(self.prompt_template, str):
       # raise warning
       Warning("Using string as prompt_template is deprecated and removed in v0.0.4. Use jinja2.Template instead.")
       return self.prompt_template.format(**inputs)
     return self.prompt_template.render(**inputs)
 
-  # TODO (rohan): Deprecate this method in v0.0.4
+  # TODO (rohan): Deprecate support response arg = None in v0.0.4
   def get_text_from_response(self, response: Optional[LLMResponse]=None) -> str:
+    """
+    Retrieves the text from the LLMResponse object.
+
+    Args:
+      response (Optional[LLMResponse]): The LLMResponse object to retrieve the text from. If not provided, the method will use the stored response.
+
+    Returns:
+      str: The text extracted from the LLMResponse object.
+    """
     if response is None:
       Warning("Using get_text_from_response without passing response is deprecated and removed in v0.0.4. Use response.json instead.")
       response = self.response
 
-    if self.is_openai():
-      return response.data['choices'][0]['message']['content']
+    if self._is_openai(): return response.data['choices'][0]['message']['content']
     return response.data['choices'][0]['text']
 
 class GenerationMaster:
+  """
+  A class that manages the generation of text using LLM models.
+
+  Args:
+    llms (Union[LLM, List[LLM]]): The LLM object(s) to use for text generation.
+    llm_inputs (List[Dict[str, Any]]): The inputs for text generation.
+    num_workers (int): The number of worker tasks to use for parallel generation.
+    session (aiohttp.ClientSession): The aiohttp client session to use for HTTP requests.
+    max_retries (int): The maximum number of retries for generating text.
+
+  """
+
   def __init__(
     self,
     llms: Union[LLM, List[LLM]],
@@ -155,6 +221,12 @@ class GenerationMaster:
 
 
   async def run(self) -> List[str]:
+    """
+    Runs the text generation process.
+
+    Returns:
+      List[str]: The generated text outputs.
+    """
     outputs = []
     for inputs in self.llm_inputs: await self._todo.put(inputs)
 
@@ -166,11 +238,21 @@ class GenerationMaster:
     return outputs
 
   async def _worker(self):
+    """
+    Worker task for processing text generation.
+
+    This task continuously processes inputs from the queue until all inputs are processed or the task is cancelled.
+    """
     while True:
       try: await self.process_one()
       except asyncio.CancelledError: return
 
   async def process_one(self):
+    """
+    Processes a single input for text generation.
+
+    This method attempts to generate text using the LLM models and handles retries and exceptions.
+    """
     inputs = await self._todo.get()
     res = None
     raised_exc = None
