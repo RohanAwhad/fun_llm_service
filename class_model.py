@@ -17,6 +17,11 @@ class LLMParams(BaseModel):
   stop: List[str]
 
 
+class LLMResponse(BaseModel):
+  status: int
+  data: Optional[Dict[str, Any]] = None
+  text: Optional[str] = None
+
 
 class LLM:
   def __init__(
@@ -26,24 +31,27 @@ class LLM:
     model: str,
     llm_params: LLMParams,
     prompt_template: Union[str, jinja2.environment.Template],
-    session: Optional[aiohttp.ClientSession]=None,
   ):
     self.url = url
     self.api_key = api_key
     self.model = model
     self.llm_params = llm_params
     self.prompt_template = prompt_template
+    self.session = None
 
-    if session is None:
-      self.generate = self._generate
-    else:
-      self.session = session
-      self.generate = self._agenerate
+  def set_session(self, session: aiohttp.ClientSession):
+    self.session = session
 
   def __str__(self) -> str:
     return f"LLM: {self.model}. URL: {self.url}"
 
-  async def _agenerate(self, inputs: Dict[str, Any]) -> str:
+  def generate(self, inputs: Dict[str, Any]) -> str:
+    if self.session is None:
+      return self._generate(inputs)
+    else:
+      return self._agenerate(inputs)
+
+  async def _agenerate(self, inputs: Dict[str, Any]) -> LLMResponse:
     data = self._prep_json(inputs)
     headers = {
       "accept": "application/json",
@@ -51,8 +59,10 @@ class LLM:
       "Authorization": "Bearer " + self.api_key
     }
     async with self.session.post(self.url, json=data, headers=headers) as response:
-      self.response = response
-      return response
+      status = response.status
+      if status == 200: self.response = LLMResponse(status=status, data=await response.json())
+      else: self.response = LLMResponse(status=status, text=await response.text())
+      return self.response
 
   def _generate(self, inputs: Dict[str, Any], verbose=False) -> str:
     data = self._prep_json(inputs)
@@ -67,9 +77,10 @@ class LLM:
       "Authorization": "Bearer " + self.api_key
     }
     res = requests.post(self.url, json=data, headers=headers)
-    res.status = res.status_code
-    self.response = res
-    return res
+    status = res.status_code
+    if status == 200: self.response = LLMResponse(status=status, data=res.json())
+    else: self.response = LLMResponse(status=status, text=res.text)
+    return self.response
 
   def _prep_json(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
     data = {
@@ -95,10 +106,15 @@ class LLM:
       return self.prompt_template.format(**inputs)
     return self.prompt_template.render(**inputs)
 
-  def get_text_from_response(self) -> str:
+  # TODO (rohan): Deprecate this method in v0.0.4
+  def get_text_from_response(self, response: Optional[LLMResponse]=None) -> str:
+    if response is None:
+      Warning("Using get_text_from_response without passing response is deprecated and removed in v0.0.4. Use response.json instead.")
+      response = self.response
+
     if self.is_openai():
-      return self.response.json()['choices'][0]['message']['content']
-    return self.response.json()['choices'][0]['text']
+      return response.data['choices'][0]['message']['content']
+    return response.data['choices'][0]['text']
 
 class GenerationMaster:
   def __init__(
@@ -134,6 +150,9 @@ class GenerationMaster:
     self._todo = asyncio.Queue()
     self._pbar = tqdm(total=len(llm_inputs), desc="Generating", leave=False)
 
+    # set sessions for llms
+    for llm in self.llms: llm.set_session(session)
+
 
   async def run(self) -> List[str]:
     outputs = []
@@ -158,10 +177,15 @@ class GenerationMaster:
     for _ in range(self.max_retries):
       for inp, llm in zip(inputs, self.llms):
         try:
-          res = llm.generate(inp)
+          '''
+          attributes needed of res:
+          - status
+          - json()
+          - text
+          '''
+          res = await llm.generate(inp)
           if res.status == 200:
-            res = res.json()
-            self._responses.append(llm.get_text_from_response())
+            self._responses.append(llm.get_text_from_response(res))
             self._pbar.update(1)
             self._todo.task_done()
             return
@@ -169,18 +193,18 @@ class GenerationMaster:
             raised_exc = res.text
             logger.warning(f'Failed to generate text using {llm}. Got status: {res.status}. Text: {res.text}')
 
-        except aiohttp.ClientError as e:
-          raised_exc = e
-          logger.error(f'Client Error: {e}')
+        # except aiohttp.ClientError as e:
+        #   raised_exc = e
+        #   logger.error(f'Client Error: {e}')
         except asyncio.TimeoutError as e:
           raised_exc = e
           logger.error(f'Timeout Error: {e}')
         except requests.JSONDecodeError as e:
           raised_exc = e
           logger.error(f'JSONDecodeError: {e} Got text: {res.text}')
-        except Exception as e:
-          raised_exc = e
-          logger.error(f'Exception: {e}')
+        # except Exception as e:
+        #   raised_exc = e
+        #   logger.error(f'Exception: {e}')
 
 
     self._pbar.update(1)
