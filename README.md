@@ -1,6 +1,16 @@
 Designing an API request service to call LLM providers' APIs.
 
+
 - The goal of this code it to ALWAYS generate text for a given prompt, as fast as possible.
+
+---
+
+### Currently supports following providers:
+- Together AI
+- OpenAI
+
+---
+
 
 Requirements:
 - The service needs to make asynchronous requests to the LLM provider's API.
@@ -14,7 +24,7 @@ Needs:
 - 2 LLM providers and 2 models each for redundancy. (Mixtral & Llama + Gpt-3.5 & Gpt-4)
 
 ---
-Based on the above description, I feel following classes/functions should be present
+Based on the above description, I feel following classes/functions should be present [Out of Sync with implementation]
 
 
 * LLMParams: All the parameters required to change model's sampling behaviour.
