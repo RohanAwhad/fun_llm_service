@@ -1,55 +1,6 @@
 '''
-Designing an API request service to call LLM providers' APIs.
-
-- The goal of this code it to ALWAYS generate text for a given prompt, as fast as possible.
-
-Requirements:
-- The service needs to make asynchronous requests to the LLM provider's API.
-- If an API request fails, the service should retry the request
-- It should fall back to another LLM provider if the first one fails.
-- Retry
-- Needs to generate a response within a specified time limit, if it cannot,
-  redundant requests should be made to other LLM providers.
-
-Needs:
-- 2 LLM providers and 2 models each for redundancy. (Mixtral & Llama + Gpt-3.5 & Gpt-4)
-
-===
-Based on the above description, I feel following classes/functions should be present
-===
-
-* LLMParams: All the parameters required to change model's sampling behaviour.
-  - max_tokens: number
-  - temperature: decimal
-  - top_p: decimal
-  - top_k: number
-  - stop_tokens: List[str]
-
-* LLM: All the details required to make a request to an LLM provider's API, along with the request method.
-  - url: string
-  - api_key: string
-  - model: string
-  - session: Optional
-  - llm_params: LLMParams
-  + _agenerate: async function
-  + _generate: function which calls the API with normal requests
-  + __call__: based on if a session is present, it should call _agenerate or _generate
-
-* GenerationMaster: All the details required to get generations fast.
-  - llms: List[LLM]  # list of redundancy
-  - input_text_list: List[str]
-  - num_workers: number
-  - session: asyncio.ClientSession with timeout
-  - max_retries: number
-  - _responses: List[str]
-  - _todo: queue of tasks  # asyncio.Queue
-  - _pbar: progress bar  # tqdm
-  + run: async function to run the generation
-  + _worker: async function to process one task and quit when (helper function)
-  + _process_one: async function to generate text and retry if fails
-
+This module contains the service code for generating outputs using different LLM service providers.
 '''
-
 
 import aiohttp
 import asyncio
@@ -88,7 +39,22 @@ def generate(
   max_retries: int,
   total_timeout: int,
 ) -> List[str]:
+  """
+  Generate outputs using the given inputs and LLM objects.
 
+  Args:
+    inputs (List[List[Dict[str, Any]]]): A list of lists of dictionaries representing the input data.
+    llm (List[LLM]): A list of LLM objects.
+    max_retries (int): The maximum number of retries for generating outputs.
+    total_timeout (int): The total timeout in seconds for generating outputs.
+
+  Returns:
+    List[str]: A list of generated outputs.
+
+  Raises:
+    ValueError: If the inputs or llm are not in the expected format.
+
+  """
   # validate
   # inputs
   if not isinstance(inputs, list): raise ValueError('inputs should be a list of list of dictionaries.')
@@ -111,7 +77,6 @@ def generate(
     for i, x in enumerate(inp):
       if not isinstance(x, dict): raise ValueError('inputs should be a list of list of dictionaries.')
       assert set(x.keys()) == inp_keys[i], 'All inputs for a particular llm should have same keys.'
-
 
   # run the generation
   return asyncio.run(_generate(
