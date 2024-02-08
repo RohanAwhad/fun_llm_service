@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 import jinja2
+import json
 import requests
 
 from loguru import logger
@@ -88,8 +89,17 @@ class LLM:
       "Authorization": "Bearer " + self.api_key
     }
     async with self.session.post(self.url, json=data, headers=headers) as response:
+      # print(response)
       status = response.status
-      if status == 200: self.response = LLMResponse(status=status, data=await response.json())
+      # print(f'status: {status}')
+      # print(f'data: {await response.text()}')
+
+      if status == 200:
+        try:
+          self.response = LLMResponse(status=status, data=await response.json())
+        except aiohttp.ClientError:
+          self.response = LLMResponse(status=status, data=json.loads(await response.text()))
+
       else: self.response = LLMResponse(status=status, text=await response.text())
       return self.response
 
