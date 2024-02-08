@@ -275,18 +275,18 @@ class GenerationMaster:
             raised_exc = res.text
             logger.warning(f'Failed to generate text using {llm}. Got status: {res.status}. Text: {res.text}')
 
-        # except aiohttp.ClientError as e:
-        #   raised_exc = e
-        #   logger.error(f'Client Error: {e}')
+        except aiohttp.ClientError as e:
+          raised_exc = e
+          logger.error(f'Client Error: {e}')
         except asyncio.TimeoutError as e:
           raised_exc = e
           logger.error(f'Timeout Error: {e}')
         except requests.JSONDecodeError as e:
           raised_exc = e
           logger.error(f'JSONDecodeError: {e} Got text: {res.text}')
-        # except Exception as e:
-        #   raised_exc = e
-        #   logger.error(f'Exception: {e}')
+        except Exception as e:
+          raised_exc = e
+          logger.error(f'Exception: {e}')
 
 
     self._pbar.update(1)
